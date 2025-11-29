@@ -71,11 +71,3 @@ CompressoX is a powerful, full-stack file compression application designed to ha
 4.  Configure compression settings (Quality, Lossy/Lossless).
 5.  Click **Compress**.
 6.  Download your compressed file once the process is complete.
-
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## 📄 License
-
-This project is licensed under the MIT License.
