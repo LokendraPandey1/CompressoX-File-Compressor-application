@@ -1,0 +1,8 @@
+flask
+flask-cors
+werkzeug
+Pillow
+PyPDF2
+python-docx
+numpy
+opencv-python

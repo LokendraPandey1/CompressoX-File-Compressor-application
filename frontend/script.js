@@ -103,7 +103,21 @@ function createFilePreviews() {
 }
 
 function detectFileType(file) {
-    return FILE_TYPES[file.type] || 'unknown';
+    if (FILE_TYPES[file.type]) {
+        return FILE_TYPES[file.type];
+    }
+
+    // Fallback to extension
+    const extension = file.name.split('.').pop().toLowerCase();
+    const extensionMap = {
+        'txt': 'text', 'md': 'text', 'log': 'text', 'json': 'text', 'xml': 'text', 'csv': 'text',
+        'jpg': 'image', 'jpeg': 'image', 'png': 'image', 'gif': 'image', 'bmp': 'image', 'webp': 'image', 'svg': 'image',
+        'pdf': 'pdf',
+        'docx': 'docx', 'doc': 'docx',
+        'mp4': 'video', 'avi': 'video', 'mov': 'video', 'wmv': 'video', 'webm': 'video', 'mkv': 'video'
+    };
+
+    return extensionMap[extension] || 'unknown';
 }
 
 function showStatus(message, isError = false) {
@@ -134,79 +148,27 @@ function removeFile(index) {
     handleFileSelect();
 }
 
-async function handleSubmit(e) {
-    e.preventDefault();
 
-    const files = fileInput.files;
-    if (!files.length) {
-        showStatus('Please select a file to compress.', true);
-        return;
-    }
-
-    const formData = new FormData();
-    const fileType = detectFileType(files[0]);
-    formData.append('fileType', fileType);
-
-    for (let file of files) {
-        formData.append('files', file);
-    }
-
-    formData.append('isLossy', document.querySelector('input[name="isLossy"]:checked').value);
-    formData.append('compressionType', document.getElementById('compressionType').value);
-    formData.append('quality', document.getElementById('quality').value);
-
-    try {
-        setLoading(true);
-        showStatus('Uploading files...');
-        updateProgress(25);
-
-        const response = await fetch(API_URL, {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!response.ok) {
-            throw new Error(`Compression failed. Server returned ${response.status}`);
-        }
-
-        updateProgress(75);
-        showStatus('Compression successful! Preparing download...');
-
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        downloadLink.href = url;
-        downloadLink.download = 'compressed_output.txt';
-        downloadLink.classList.remove('hidden');
-
-        updateProgress(100);
-    } catch (err) {
-        console.error(err);
-        showStatus('Error: ' + err.message, true);
-        updateProgress(0);
-    } finally {
-        setLoading(false);
-    }
-}
 
 // Handle compression options
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     const isLossyRadios = document.querySelectorAll('input[name="isLossy"]');
     const compressionTypeSelect = document.getElementById('compressionType');
     const qualityInput = document.getElementById('quality');
     const qualityValue = document.getElementById('qualityValue');
 
     // Update quality value display
-    qualityInput.addEventListener('input', function(e) {
+    qualityInput.addEventListener('input', function (e) {
         qualityValue.textContent = e.target.value + '%';
     });
 
     // Handle compression mode change
     isLossyRadios.forEach(radio => {
-        radio.addEventListener('change', function() {
+        radio.addEventListener('change', function () {
             const isLossy = this.value === 'true';
             const lossyOptions = compressionTypeSelect.querySelector('.lossy-options');
             const losslessOptions = compressionTypeSelect.querySelector('.lossless-options');
-            
+
             // Show/hide appropriate options
             if (isLossy) {
                 lossyOptions.style.display = 'block';
@@ -224,7 +186,7 @@ document.addEventListener('DOMContentLoaded', function() {
     const initialIsLossy = document.querySelector('input[name="isLossy"]:checked').value === 'true';
     const lossyOptions = compressionTypeSelect.querySelector('.lossy-options');
     const losslessOptions = compressionTypeSelect.querySelector('.lossless-options');
-    
+
     if (initialIsLossy) {
         losslessOptions.style.display = 'none';
     } else {
@@ -233,91 +195,103 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // Update quality value display
-document.getElementById('quality').addEventListener('input', function(e) {
+document.getElementById('quality').addEventListener('input', function (e) {
     document.getElementById('qualityValue').textContent = e.target.value + '%';
 });
 
-// Remove all existing form submission handlers
-form.removeEventListener('submit', handleSubmit);
-
 // Single form submission handler
-form.addEventListener('submit', async function(e) {
+form.addEventListener('submit', async function (e) {
     e.preventDefault();
-    
+
     const files = fileInput.files;
     if (!files.length) {
         showStatus('Please select a file to compress.', true);
         return;
     }
 
-    const formData = new FormData();
     const isLossy = document.querySelector('input[name="compressionMode"]:checked').value === 'lossy';
     const quality = parseInt(document.getElementById('quality').value);
 
-    // Add file and compression options
-    formData.append('files', files[0]);
-    formData.append('fileType', detectFileType(files[0]));
-    formData.append('isLossy', isLossy);
-    formData.append('quality', quality);
+    setLoading(true);
 
     try {
-        setLoading(true);
-        showStatus('Uploading file...');
-        updateProgress(25);
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const formData = new FormData();
 
-        // First request to get compression metadata
-        const metadataResponse = await fetch(`${API_URL}/compress/metadata`, {
-            method: 'POST',
-            body: formData
-        });
+            // Add file and compression options
+            formData.append('files', file);
+            formData.append('fileType', detectFileType(file));
+            formData.append('isLossy', isLossy);
+            formData.append('quality', quality);
 
-        if (!metadataResponse.ok) {
-            const errorData = await metadataResponse.json();
-            throw new Error(errorData.error || `Compression failed. Server returned ${metadataResponse.status}`);
+            showStatus(`Processing file ${i + 1} of ${files.length}: ${file.name}...`);
+            updateProgress(10);
+
+            // First request to get compression metadata
+            const metadataResponse = await fetch(`${API_URL}/compress/metadata`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!metadataResponse.ok) {
+                const errorData = await metadataResponse.json();
+                throw new Error(errorData.error || `Compression failed for ${file.name}`);
+            }
+
+            const metadata = await metadataResponse.json();
+
+            // Update compression info with the metadata
+            updateCompressionInfo({
+                success: true,
+                algorithm: metadata.algorithm,
+                description: metadata.description,
+                original_size: metadata.original_size,
+                compressed_size: metadata.compressed_size,
+                ratio: metadata.ratio
+            });
+
+            updateProgress(50);
+            showStatus(`Compressing ${file.name}...`);
+
+            // Second request to get the compressed file
+            const fileResponse = await fetch(`${API_URL}/compress/file`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!fileResponse.ok) {
+                throw new Error(`Failed to get compressed file for ${file.name}`);
+            }
+
+            updateProgress(90);
+            showStatus(`Preparing download for ${file.name}...`);
+
+            // Create download link for the compressed file
+            const compressedBlob = await fileResponse.blob();
+            const url = window.URL.createObjectURL(compressedBlob);
+
+            // Create a temporary link to trigger download
+            const tempLink = document.createElement('a');
+            tempLink.href = url;
+            tempLink.download = 'compressed_' + file.name;
+            document.body.appendChild(tempLink);
+            tempLink.click();
+            document.body.removeChild(tempLink);
+
+            // Also update the main download button for the last file
+            downloadLink.href = url;
+            downloadLink.download = 'compressed_' + file.name;
+            downloadLink.classList.remove('hidden');
         }
-
-        const metadata = await metadataResponse.json();
-        
-        // Update compression info with the metadata
-        updateCompressionInfo({
-            success: true,
-            algorithm: metadata.algorithm,
-            description: metadata.description,
-            original_size: metadata.original_size,
-            compressed_size: metadata.compressed_size,
-            ratio: metadata.ratio
-        });
-
-        updateProgress(50);
-        showStatus('Compressing file...');
-
-        // Second request to get the compressed file
-        const fileResponse = await fetch(`${API_URL}/compress/file`, {
-            method: 'POST',
-            body: formData
-        });
-
-        if (!fileResponse.ok) {
-            throw new Error(`Failed to get compressed file. Server returned ${fileResponse.status}`);
-        }
-
-        updateProgress(75);
-        showStatus('Compression successful! Preparing download...');
-
-        // Create download link for the compressed file
-        const compressedBlob = await fileResponse.blob();
-        const url = window.URL.createObjectURL(compressedBlob);
-        downloadLink.href = url;
-        downloadLink.download = 'compressed_' + files[0].name;
-        downloadLink.classList.remove('hidden');
 
         updateProgress(100);
-        showStatus('Compression completed successfully!');
+        showStatus('All files processed successfully!');
     } catch (error) {
         console.error('Compression error:', error);
         showStatus('Error: ' + error.message, true);
         updateProgress(0);
-        
+
         // Show error in compression info
         updateCompressionInfo({
             success: false,

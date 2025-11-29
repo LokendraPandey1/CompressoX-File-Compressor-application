@@ -8,9 +8,6 @@ import shutil
 import xml.etree.ElementTree as ET
 import re
 from collections import Counter
-import lzma
-import bz2
-import zlib
 import heapq
 
 def apply_lossy_algorithm_1(doc):
@@ -115,174 +112,8 @@ def apply_lossless_algorithm_1(doc):
         if not style.element.xpath('.//w:rPr'):
             style.element.getparent().remove(style.element)
 
-class HuffmanNode:
-    def __init__(self, char: str, freq: int):
-        self.char = char
-        self.freq = freq
-        self.left = None
-        self.right = None
-
-    def __lt__(self, other):
-        return self.freq < other.freq
-
-def build_huffman_tree(text: str) -> HuffmanNode:
-    """Build a Huffman tree from the input text"""
-    # Count character frequencies
-    freq = Counter(text)
-    
-    # Create priority queue
-    heap = [HuffmanNode(char, freq) for char, freq in freq.items()]
-    heapq.heapify(heap)
-    
-    # Build tree
-    while len(heap) > 1:
-        left = heapq.heappop(heap)
-        right = heapq.heappop(heap)
-        
-        internal = HuffmanNode(None, left.freq + right.freq)
-        internal.left = left
-        internal.right = right
-        
-        heapq.heappush(heap, internal)
-    
-    return heap[0]
-
-def build_huffman_codes(root: HuffmanNode, current_code: str = "", codes: dict = None) -> dict:
-    """Build Huffman codes from the tree"""
-    if codes is None:
-        codes = {}
-    
-    if root is None:
-        return codes
-    
-    if root.char is not None:
-        codes[root.char] = current_code if current_code else "0"
-    
-    build_huffman_codes(root.left, current_code + "0", codes)
-    build_huffman_codes(root.right, current_code + "1", codes)
-    
-    return codes
-
-def huffman_encode(text: str) -> bytes:
-    """Huffman coding implementation"""
-    # Build Huffman tree and codes
-    root = build_huffman_tree(text)
-    codes = build_huffman_codes(root)
-    
-    # Encode text
-    encoded = ''.join(codes[char] for char in text)
-    
-    # Convert to bytes
-    padding = 8 - (len(encoded) % 8)
-    encoded += '0' * padding
-    
-    # Convert to bytes
-    result = bytearray()
-    for i in range(0, len(encoded), 8):
-        byte = encoded[i:i+8]
-        result.append(int(byte, 2))
-    
-    # Add padding information
-    result.insert(0, padding)
-    
-    # Add codes dictionary
-    codes_str = str(codes)
-    result.extend(len(codes_str).to_bytes(4, 'big'))
-    result.extend(codes_str.encode())
-    
-    return bytes(result)
-
-def run_length_encode(text: str) -> bytes:
-    """Run-length encoding implementation"""
-    if not text:
-        return b''
-    
-    result = bytearray()
-    count = 1
-    current = text[0]
-    
-    for char in text[1:]:
-        if char == current:
-            count += 1
-        else:
-            result.extend(current.encode())
-            result.extend(str(count).encode())
-            current = char
-            count = 1
-    
-    # Add the last character and its count
-    result.extend(current.encode())
-    result.extend(str(count).encode())
-    
-    return bytes(result)
-
-def lz77_encode(text: str, window_size: int = 4096, lookahead_size: int = 64) -> bytes:
-    """LZ77 compression implementation"""
-    result = bytearray()
-    pos = 0
-    
-    while pos < len(text):
-        # Find the longest match in the window
-        best_match = (0, 0)  # (offset, length)
-        window_start = max(0, pos - window_size)
-        
-        for i in range(window_start, pos):
-            match_length = 0
-            while (pos + match_length < len(text) and 
-                   match_length < lookahead_size and 
-                   text[i + match_length] == text[pos + match_length]):
-                match_length += 1
-            
-            if match_length > best_match[1]:
-                best_match = (pos - i, match_length)
-        
-        # If we found a match
-        if best_match[1] > 2:
-            # Encode as (offset, length, next_char)
-            result.extend(best_match[0].to_bytes(2, 'big'))
-            result.extend(best_match[1].to_bytes(1, 'big'))
-            if pos + best_match[1] < len(text):
-                result.extend(text[pos + best_match[1]].encode())
-            pos += best_match[1] + 1
-        else:
-            # Encode as (0, 0, char)
-            result.extend(b'\x00\x00')
-            result.extend(text[pos].encode())
-            pos += 1
-    
-    return bytes(result)
-
-def apply_lossless_algorithm_2(doc):
-    """Content Stream Optimization: Compresses text content using our own algorithms"""
-    for paragraph in doc.paragraphs:
-        for run in paragraph.runs:
-            if run.text:
-                try:
-                    # Try different compression algorithms
-                    algorithms = [
-                        (huffman_encode, 'Huffman'),
-                        (run_length_encode, 'RLE'),
-                        (lz77_encode, 'LZ77')
-                    ]
-                    
-                    best_compressed = None
-                    best_size = float('inf')
-                    
-                    for algo, name in algorithms:
-                        compressed = algo(run.text)
-                        if len(compressed) < best_size:
-                            best_compressed = compressed
-                            best_size = len(compressed)
-                    
-                    # Store compressed data in a custom property
-                    run._element.set('{http://schemas.openxmlformats.org/wordprocessingml/2006/main}compressed', best_compressed.hex())
-                    # Clear original text
-                    run.text = ''
-                except Exception as e:
-                    print(f"Error in content compression: {str(e)}")
-
 def apply_lossless_algorithm_3(doc):
-    """Object Stream Optimization: Optimizes document structure and uses object streams"""
+    """Object Stream Optimization: Optimizes document structure and uses object streams (Re-zipping)"""
     # Create a temporary directory
     temp_dir = "temp_docx"
     os.makedirs(temp_dir, exist_ok=True)
@@ -312,19 +143,32 @@ def apply_lossless_algorithm_3(doc):
             tree.write(doc_xml_path, encoding='UTF-8', xml_declaration=True)
         
         # Create new DOCX with maximum compression
+        # We overwrite the temp_path with the re-zipped content
         with zipfile.ZipFile(temp_path, 'w', zipfile.ZIP_DEFLATED, compresslevel=9) as zipf:
             for root, dirs, files in os.walk(temp_dir):
                 for file in files:
+                    if file == "temp.docx": continue # Skip the file we are writing to if it exists in walk
                     file_path = os.path.join(root, file)
                     arcname = os.path.relpath(file_path, temp_dir)
                     zipf.write(file_path, arcname)
         
-        # Reload the document
+        # Reload the document from the re-zipped file
+        # Note: python-docx might re-serialize when saving again, undoing some zip compression.
+        # But this is the best we can do within the library constraints without just returning bytes.
+        # For the purpose of this tool, we will return the doc object which will be saved by the caller.
+        # However, the caller saves via doc.save(), which re-zips.
+        # So the real benefit here is the XML cleanup we did above.
+        
+        # To truly benefit from max compression, we should probably handle the file bytes directly in the main loop,
+        # but the interface expects a Document object modification.
+        # We'll stick to XML cleanup + Structure Optimization as the main benefits.
+        
         doc = Document(temp_path)
         
     finally:
         # Clean up
-        shutil.rmtree(temp_dir)
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
 
 def compress_docx(input_path, output_path, is_lossy=True):
     """Compress a DOCX file using various algorithms"""
@@ -346,7 +190,7 @@ def compress_docx(input_path, output_path, is_lossy=True):
             # Try each lossless algorithm
             algorithms = [
                 (apply_lossless_algorithm_1, 'Structure Optimization', 'Removes unnecessary elements and optimizes document structure'),
-                (apply_lossless_algorithm_2, 'Content Stream Optimization', 'Compresses text content using our own algorithms'),
+                # Removed apply_lossless_algorithm_2 as it was destructive
                 (apply_lossless_algorithm_3, 'Object Stream Optimization', 'Optimizes document structure and uses object streams')
             ]
         
@@ -373,6 +217,8 @@ def compress_docx(input_path, output_path, is_lossy=True):
                     best_compressed_size = compressed_size
                     best_algorithm = (name, description)
                     # Move the temporary file to the final output path
+                    if os.path.exists(output_path):
+                        os.remove(output_path)
                     shutil.move(temp_output, output_path)
                 else:
                     # Remove the temporary file
@@ -386,6 +232,22 @@ def compress_docx(input_path, output_path, is_lossy=True):
         
         # If no compression was successful, return error
         if best_compressed_size >= original_size:
+             # Try one last fallback: just re-save with python-docx which might optimize slightly
+            try:
+                doc.save(output_path)
+                final_size = os.path.getsize(output_path)
+                if final_size < original_size:
+                     return {
+                        'success': True,
+                        'original_size': original_size,
+                        'compressed_size': final_size,
+                        'ratio': original_size / final_size if final_size > 0 else 1,
+                        'algorithm': 'Standard Re-save',
+                        'description': 'Standard optimization'
+                    }
+            except:
+                pass
+
             return {
                 'success': False,
                 'error': 'Could not achieve compression'

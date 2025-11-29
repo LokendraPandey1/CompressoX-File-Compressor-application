@@ -53,8 +53,14 @@ def compress_text(input_path: str, output_path: str, is_lossy: bool = True, qual
         
         # Write the compressed text
         logger.debug(f"Writing compressed file: {output_path}")
-        with open(output_path, 'w', encoding='utf-8') as f:
-            f.write(compressed_text)
+        # Write the compressed text
+        logger.debug(f"Writing compressed file: {output_path}")
+        if isinstance(compressed_text, bytes):
+            with open(output_path, 'wb') as f:
+                f.write(compressed_text)
+        else:
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(compressed_text)
         
         # Add success flag and file paths to metadata
         metadata.update({

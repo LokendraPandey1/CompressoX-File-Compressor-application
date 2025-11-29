@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+CompressoX_Backend/temp/
+CompressoX_Backend/compressed/
+.DS_Store
+.env
+node_modules/

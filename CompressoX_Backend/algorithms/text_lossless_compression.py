@@ -60,7 +60,7 @@ def build_huffman_codes(root: HuffmanNode, current_code: str = "", codes: Dict =
     
     return codes
 
-def compress_text_lossless(text: str, quality: int = 100) -> Tuple[str, Dict]:
+def compress_text_lossless(text: str, quality: int = 100) -> Tuple[bytes, Dict]:
     """
     Compress text using lossless Huffman coding.
     
@@ -69,14 +69,14 @@ def compress_text_lossless(text: str, quality: int = 100) -> Tuple[str, Dict]:
         quality (int): Not used in lossless compression, kept for API consistency
         
     Returns:
-        Tuple[str, Dict]: Compressed text and compression metadata
+        Tuple[bytes, Dict]: Compressed bytes and compression metadata
     """
     try:
         if not isinstance(text, str):
             raise TypeError(f"Expected string input, got {type(text)}")
             
         if not text:
-            return "", {
+            return b"", {
                 'algorithm': 'Lossless Text Compression (Huffman)',
                 'original_size': 0,
                 'compressed_size': 0,
@@ -88,16 +88,34 @@ def compress_text_lossless(text: str, quality: int = 100) -> Tuple[str, Dict]:
         tree = build_huffman_tree(text)
         codes = build_huffman_codes(tree)
         
-        # Encode text
+        # Encode text to bit string
         try:
-            encoded = ''.join(codes[char] for char in text)
+            encoded_bits = ''.join(codes[char] for char in text)
         except KeyError as e:
             logger.error(f"Character not found in Huffman codes: {str(e)}")
             raise ValueError(f"Invalid character in input text: {str(e)}")
         
+        # Pack bits into bytes
+        padding = 8 - (len(encoded_bits) % 8)
+        if padding == 8:
+            padding = 0
+            
+        encoded_bits += '0' * padding
+        
+        # Convert to bytearray
+        byte_array = bytearray()
+        # Add padding info as first byte
+        byte_array.append(padding)
+        
+        for i in range(0, len(encoded_bits), 8):
+            byte = encoded_bits[i:i+8]
+            byte_array.append(int(byte, 2))
+            
+        compressed_bytes = bytes(byte_array)
+        
         # Calculate compression stats
         original_size = len(text.encode('utf-8'))
-        compressed_size = (len(encoded) + 7) // 8  # Convert bits to bytes
+        compressed_size = len(compressed_bytes)
         ratio = original_size / compressed_size if compressed_size > 0 else 1
         
         metadata = {
@@ -105,12 +123,12 @@ def compress_text_lossless(text: str, quality: int = 100) -> Tuple[str, Dict]:
             'original_size': original_size,
             'compressed_size': compressed_size,
             'ratio': ratio,
-            'huffman_codes': codes,
+            'huffman_codes': codes, # Needed for decompression
             'success': True
         }
         
-        return encoded, metadata
+        return compressed_bytes, metadata
         
     except Exception as e:
         logger.error(f"Error in lossless compression: {str(e)}")
-        raise RuntimeError(f"Lossless compression failed: {str(e)}") 
+        raise RuntimeError(f"Lossless compression failed: {str(e)}")
